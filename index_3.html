@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>経費ログ｜領収書を送る</title>
+<style>
+  :root{ --navy:#041E69; --navy2:#0a3196; --gold:#C8A951; --ink:#1c2330;
+    --line:#dfe3ec; --muted:#6b7488; --bg:#f4f6fb; --card:#fff; --yellow:#FFF6C8; --yellow-br:#E7CE66;
+    --ok:#0f7b4f; --ok-bg:#e8f6ee; --warn:#b3261e; }
+  *{box-sizing:border-box;}
+  body{margin:0;font-family:"Meiryo UI","Meiryo","Segoe UI",sans-serif;background:var(--bg);color:var(--ink);font-size:14px;}
+  header{background:linear-gradient(135deg,var(--navy),var(--navy2));color:#fff;padding:15px 18px;border-bottom:3px solid var(--gold);}
+  header .ttl{font-size:17px;font-weight:800;}
+  header .sub{font-size:11.5px;opacity:.85;margin-top:2px;}
+  main{padding:16px;max-width:560px;margin:0 auto;}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px;box-shadow:0 1px 3px rgba(6,32,95,.05);}
+  .card h3{font-size:13px;color:var(--navy);margin:0 0 12px;font-weight:800;display:flex;align-items:center;gap:7px;}
+  .card h3 .n{width:22px;height:22px;border-radius:50%;background:var(--navy);color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:12px;}
+  label.fld{display:block;margin-bottom:11px;}
+  label.fld>span{display:block;font-size:11.5px;color:var(--muted);font-weight:700;margin-bottom:4px;}
+  input,select{font-family:inherit;font-size:15px;border:1px solid var(--line);border-radius:9px;padding:11px 12px;width:100%;background:var(--yellow);border-color:var(--yellow-br);color:var(--ink);}
+  input:focus,select:focus{outline:2px solid var(--gold);outline-offset:-1px;}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  .btn{background:var(--navy);color:#fff;border:none;border-radius:10px;padding:13px 16px;font-size:15px;font-weight:800;cursor:pointer;font-family:inherit;width:100%;}
+  .btn:hover{background:var(--navy2);}
+  .btn:disabled{opacity:.5;}
+  .btn.o{background:#fff;color:var(--navy);border:1px solid var(--navy);}
+  .btn.sm{padding:8px 12px;font-size:13px;width:auto;border-radius:8px;}
+  .capwrap{border:2px dashed var(--line);border-radius:14px;padding:22px;text-align:center;background:#fafbff;}
+  .capwrap.has{border-style:solid;border-color:var(--gold);padding:10px;}
+  .preview{max-width:100%;max-height:320px;border-radius:10px;display:block;margin:0 auto;}
+  .filebtns{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:10px;}
+  .spinner{width:16px;height:16px;border:2px solid var(--navy);border-top-color:transparent;border-radius:50%;animation:spin .8s linear infinite;display:inline-block;vertical-align:-3px;margin-right:6px;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+  .status{font-size:12.5px;font-weight:700;margin-top:10px;}
+  .status.ok{color:var(--ok);} .status.err{color:var(--warn);}
+  .pill{font-size:10.5px;font-weight:800;border-radius:20px;padding:2px 9px;background:#fbf1e0;color:#8a6d1e;}
+  .done{text-align:center;padding:26px 14px;}
+  .done .big{font-size:46px;}
+  .done h2{color:var(--ok);font-size:20px;margin:8px 0 4px;}
+  .done p{color:var(--muted);font-size:13px;margin:0 0 18px;}
+  .hide{display:none;}
+  .mini{font-size:11px;color:var(--muted);}
+  .cfgwarn{background:#fce9e7;border:1px solid #e6b8b3;color:#8a201a;border-radius:10px;padding:11px 13px;font-size:12.5px;margin-bottom:14px;}
+</style>
+</head>
+<body>
+<header>
+  <div class="ttl">経費ログ｜領収書を送る</div>
+  <div class="sub">社用カードを使ったら、領収書を撮って送ってください</div>
+</header>
+<main>
+  <div class="cfgwarn hide" id="cfgwarn">送信先が未設定です。ファイル先頭の <b>GAS_URL</b> にWebアプリのURLを記載してください。</div>
+
+  <!-- 入力フロー -->
+  <div id="flow">
+    <div class="card">
+      <h3><span class="n">1</span>領収書の写真</h3>
+      <div class="capwrap" id="capwrap">
+        <div id="capEmpty">
+          <div style="font-size:38px">🧾</div>
+          <p class="mini" style="margin:8px 0 0;">領収書を撮影してください</p>
+          <div class="filebtns">
+            <label class="btn sm">📷 撮影する<input type="file" accept="image/*" capture="environment" style="display:none" onchange="onPick(event)"></label>
+            <label class="btn o sm">🖼 画像を選ぶ<input type="file" accept="image/*" style="display:none" onchange="onPick(event)"></label>
+          </div>
+        </div>
+        <img id="preview" class="preview" style="display:none" alt="領収書">
+      </div>
+      <div id="aiArea" class="hide"><div class="status" id="aiStatus"></div></div>
+      <div class="filebtns" id="retake" style="display:none;margin-top:10px;">
+        <label class="btn o sm">↻ 撮り直す<input type="file" accept="image/*" capture="environment" style="display:none" onchange="onPick(event)"></label>
+        <button class="btn o sm" onclick="runOCR()">✨ もう一度読み取る</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3><span class="n">2</span>内容を確認</h3>
+      <div class="grid2">
+        <label class="fld"><span>日付</span><input type="date" id="f-date"></label>
+        <label class="fld"><span>金額（円・税込）</span><input type="number" inputmode="numeric" id="f-amount" placeholder="例 1280"></label>
+      </div>
+      <label class="fld"><span>利用先（店名）</span><input id="f-store" placeholder="例 ◯◯ドラッグ"></label>
+      <label class="fld"><span>費目カテゴリ <span id="catAI" class="pill" style="display:none">AI判定</span></span><select id="f-category" onchange="document.getElementById('catAI').style.display='none'"></select></label>
+      <div class="grid2">
+        <label class="fld"><span>利用者（あなたの名前）</span><input id="f-user" placeholder="例 福田"></label>
+        <label class="fld"><span>メモ</span><input id="f-memo" placeholder="任意"></label>
+      </div>
+    </div>
+
+    <div class="card">
+      <button class="btn" id="sendBtn" onclick="send()">📤 この領収書を送る</button>
+      <div class="status err" id="sendErr" style="text-align:center;"></div>
+    </div>
+  </div>
+
+  <!-- 完了 -->
+  <div id="done" class="card done hide">
+    <div class="big">✅</div>
+    <h2>送信しました</h2>
+    <p>管理者に届きました。続けて送れます。</p>
+    <button class="btn" onclick="nextOne()">続けて撮る</button>
+  </div>
+</main>
+
+<script>
+/* ====== 送信先（GASのウェブアプリ /exec URL を貼る） ====== */
+const GAS_URL = "https://script.google.com/macros/s/AKfycbxfGJZaevY2hGH0CLAkMHpzecDA2HUQkcdv0o9ryAm6ShFyzvWLEbTvLdVSb3diagVZQA/exec";
+const CATS = ["消耗品","食費","交通費","通信費","医療・衛生","接待・会議","修繕","備品","その他"];
+/* ======================================================== */
+
+let cats = CATS.slice();
+let currentImage = null;
+const LASTUSER = "serene_keihi_lastuser";
+
+function s(id){ return document.getElementById(id); }
+
+function gasPost(payload){
+  // text/plain にしてプリフライトを回避（GASの仕様）
+  return fetch(GAS_URL, { method:"POST", headers:{"Content-Type":"text/plain;charset=utf-8"}, body:JSON.stringify(payload) })
+    .then(r=>r.json());
+}
+
+function onPick(ev){
+  const f=ev.target.files&&ev.target.files[0]; ev.target.value=""; if(!f) return;
+  const rd=new FileReader();
+  rd.onload=()=>{ const img=new Image();
+    img.onload=()=>{ const max=1400; let w=img.width,h=img.height;
+      if(Math.max(w,h)>max){ const sc=max/Math.max(w,h); w=Math.round(w*sc); h=Math.round(h*sc); }
+      const cv=document.createElement("canvas"); cv.width=w; cv.height=h;
+      cv.getContext("2d").drawImage(img,0,0,w,h);
+      currentImage=cv.toDataURL("image/jpeg",0.72);
+      showPreview(); runOCR();
+    };
+    img.src=rd.result;
+  };
+  rd.readAsDataURL(f);
+}
+function showPreview(){ const p=s("preview");
+  if(currentImage){ p.src=currentImage; p.style.display="block"; s("capEmpty").style.display="none"; s("capwrap").classList.add("has"); s("retake").style.display="flex"; }
+  else { p.style.display="none"; s("capEmpty").style.display="block"; s("capwrap").classList.remove("has"); s("retake").style.display="none"; s("aiArea").classList.add("hide"); }
+}
+
+async function runOCR(){
+  if(!currentImage) return;
+  if(!GAS_URL){ return; }
+  const st=s("aiStatus"); s("aiArea").classList.remove("hide");
+  st.className="status"; st.innerHTML='<span class="spinner"></span>領収書を読み取っています…';
+  try{
+    const r = await gasPost({ action:"ocr", image:currentImage });
+    if(!r.ok) throw new Error(r.error||"読み取り失敗");
+    const o=r.fields||{};
+    if(o.date) s("f-date").value=o.date;
+    if(o.store) s("f-store").value=o.store;
+    if(o.amount) s("f-amount").value=Math.round(Number(o.amount))||"";
+    if(o.category){ ensureCat(o.category); s("f-category").value=o.category; s("catAI").style.display="inline-block"; }
+    if(o.memo) s("f-memo").value=o.memo;
+    st.className="status ok"; st.textContent="✓ 読み取りました。内容を確認して送ってください。";
+  }catch(e){ st.className="status err"; st.textContent="自動読み取りできませんでした。手で入力して送ってください。（"+e.message+"）"; }
+}
+function ensureCat(c){ if(c&&!cats.includes(c)){ cats.push(c); fillCats(); } }
+function fillCats(){ s("f-category").innerHTML=cats.map(c=>`<option>${c}</option>`).join(""); }
+
+async function send(){
+  const amount=Number(s("f-amount").value)||0, date=s("f-date").value;
+  if(!currentImage){ s("sendErr").textContent="先に領収書を撮ってください。"; return; }
+  if(!date){ s("sendErr").textContent="日付を入れてください。"; return; }
+  if(!amount){ s("sendErr").textContent="金額を入れてください。"; return; }
+  if(!GAS_URL){ s("sendErr").textContent="送信先(GAS_URL)が未設定です。管理者に連絡してください。"; return; }
+  s("sendErr").textContent="";
+  const btn=s("sendBtn"); btn.disabled=true; btn.innerHTML='<span class="spinner"></span>送信中…';
+  try{
+    const user=s("f-user").value.trim();
+    const r = await gasPost({ action:"save", date, amount, store:s("f-store").value.trim(),
+      category:s("f-category").value, user, memo:s("f-memo").value.trim(),
+      image:currentImage, device:navigator.userAgent.slice(0,60) });
+    if(!r.ok) throw new Error(r.error||"送信失敗");
+    try{ if(user) localStorage.setItem(LASTUSER,user); }catch(_){}
+    s("flow").classList.add("hide"); s("done").classList.remove("hide");
+    window.scrollTo({top:0});
+  }catch(e){ s("sendErr").textContent="送信できませんでした："+e.message; }
+  finally{ btn.disabled=false; btn.innerHTML="📤 この領収書を送る"; }
+}
+function nextOne(){
+  currentImage=null; showPreview();
+  s("f-date").value=new Date().toISOString().slice(0,10);
+  s("f-amount").value=""; s("f-store").value=""; s("f-memo").value="";
+  s("f-category").selectedIndex=0; s("catAI").style.display="none"; s("aiStatus").textContent="";
+  s("done").classList.add("hide"); s("flow").classList.remove("hide");
+}
+
+/* 起動 */
+(function(){
+  fillCats(); nextOne();
+  try{ const lu=localStorage.getItem(LASTUSER); if(lu) s("f-user").value=lu; }catch(_){}
+  if(!GAS_URL) s("cfgwarn").classList.remove("hide");
+})();
+</script>
+</body>
+</html>
