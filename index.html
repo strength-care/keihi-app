@@ -71,6 +71,18 @@
   .rlink{color:var(--navy);text-decoration:none;font-weight:800;}
   .empty{color:var(--muted);text-align:center;padding:20px;font-size:13px;}
   .bar{height:10px;border-radius:5px;background:var(--navy);}
+  .cardpick{display:flex;gap:8px;}
+  .cardpick button{flex:1;border:1px solid var(--yellow-br);background:var(--yellow);color:var(--ink);
+    border-radius:9px;padding:12px 8px;font-size:14px;font-weight:800;cursor:pointer;font-family:inherit;}
+  .cardpick button.on{background:var(--navy);border-color:var(--navy);color:#fff;}
+  .bdg{font-size:10.5px;font-weight:800;border-radius:20px;padding:3px 9px;white-space:nowrap;display:inline-block;}
+  .bdg.un{background:#fdecea;color:var(--warn);}
+  .bdg.ok{background:var(--ok-bg);color:var(--ok);}
+  .chkbtn{border:1px solid var(--navy);background:#fff;color:var(--navy);border-radius:7px;
+    padding:5px 9px;font-size:11.5px;font-weight:800;cursor:pointer;font-family:inherit;white-space:nowrap;}
+  .chkbtn.undo{border-color:var(--line);color:var(--muted);}
+  .chkbtn:disabled{opacity:.5;}
+  .chkinfo{font-size:10px;color:var(--muted);margin-top:2px;white-space:nowrap;}
   .catrow{display:flex;align-items:center;gap:8px;margin-bottom:7px;font-size:12.5px;}
   .catrow .nm{width:96px;flex:0 0 auto;color:var(--ink);}
   .catrow .track{flex:1;background:#f3ece1;border-radius:5px;overflow:hidden;}
@@ -127,6 +139,12 @@
       </div>
       <label class="fld"><span>利用先（店名）</span><input id="f-store" placeholder="例 ◯◯ドラッグ"></label>
       <label class="fld"><span>費目カテゴリ <span id="catAI" class="pill" style="display:none">AI判定</span></span><select id="f-category" onchange="document.getElementById('catAI').style.display='none'"></select></label>
+      <label class="fld"><span>使ったカード</span>
+        <div class="cardpick">
+          <button type="button" id="card-smbc" onclick="pickCard('三井住友')">💳 三井住友</button>
+          <button type="button" id="card-musashino" onclick="pickCard('武蔵野')">💳 武蔵野</button>
+        </div>
+      </label>
       <div class="grid2">
         <label class="fld"><span id="userLbl">記録者</span><input id="f-user" placeholder="例 福田"></label>
         <label class="fld"><span>メモ</span><input id="f-memo" placeholder="任意"></label>
@@ -162,12 +180,24 @@
     <div id="acct-body" class="hide">
       <div class="acct-toolbar">
         <select id="acct-month" onchange="acctRender()"><option value="">すべての期間</option></select>
+        <select id="acct-card" onchange="acctRender()">
+          <option value="">カード：すべて</option>
+          <option value="三井住友">三井住友</option>
+          <option value="武蔵野">武蔵野</option>
+          <option value="__none__">（未選択）</option>
+        </select>
+        <select id="acct-chk" onchange="acctRender()">
+          <option value="">確認状態：すべて</option>
+          <option value="un">未確認のみ</option>
+          <option value="ok">確認済みのみ</option>
+        </select>
         <span class="acct-status" id="acct-status"></span>
         <span style="flex:1"></span>
         <button class="btn o sm" onclick="acctReload()">↻ 更新</button>
         <button class="btn sm" onclick="exportCSV()">CSV書き出し</button>
       </div>
       <div class="kpis" id="kpis"></div>
+      <div class="panel"><h3>カード別の集計（表示期間）</h3><div id="cardbreak"></div></div>
       <div class="panel"><h3>費目別の集計（表示期間）</h3><div id="catbreak"></div></div>
       <div class="panel"><h3>明細一覧</h3><div class="scroll" id="listWrap"></div></div>
     </div>
@@ -184,6 +214,16 @@ const ACCT_PW = "9999";
 let cats = CATS.slice();
 let currentImage = null;
 const LASTUSER = "serene_keihi_lastuser";
+const LASTCARD = "serene_keihi_lastcard";
+
+/* ===== カード区分 ===== */
+let selectedCard = "";
+function pickCard(c){
+  selectedCard = c;
+  s("card-smbc").classList.toggle("on", c==="三井住友");
+  s("card-musashino").classList.toggle("on", c==="武蔵野");
+  try{ localStorage.setItem(LASTCARD, c); }catch(_){}
+}
 function s(id){ return document.getElementById(id); }
 function yen(n){ return "¥"+(Number(n)||0).toLocaleString(); }
 function esc(t){ return String(t==null?"":t).replace(/[&<>"]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m])); }
@@ -244,12 +284,13 @@ async function send(){
   if(!currentImage){ s("sendErr").textContent="先に領収書を撮ってください。"; return; }
   if(!date){ s("sendErr").textContent="日付を入れてください。"; return; }
   if(!amount){ s("sendErr").textContent="金額を入れてください。"; return; }
+  if(!selectedCard){ s("sendErr").textContent="使ったカード（三井住友／武蔵野）を選んでください。"; return; }
   s("sendErr").textContent="";
   const btn=s("sendBtn"); btn.disabled=true; btn.innerHTML='<span class="spinner"></span>送信中…';
   try{
     const user=s("f-user").value.trim();
     const r = await gasPost({ action:"save", date, amount, store:s("f-store").value.trim(),
-      category:s("f-category").value, user, memo:s("f-memo").value.trim(),
+      category:s("f-category").value, user, memo:s("f-memo").value.trim(), card:selectedCard,
       image:currentImage, device:navigator.userAgent.slice(0,60) });
     if(!r.ok) throw new Error(r.error||"送信失敗");
     try{ if(user && !window._loginName) localStorage.setItem(LASTUSER,user); }catch(_){}
@@ -287,19 +328,36 @@ async function acctReload(){
     acctRender();
   }catch(e){ st.className="acct-status err"; st.textContent="エラー："+e.message; }
 }
+function acctFiltered(){
+  const mk=s("acct-month").value, cd=s("acct-card").value, ck=s("acct-chk").value;
+  let list=mk?acctRows.filter(r=>r.mk===mk):acctRows.slice();
+  if(cd==="__none__") list=list.filter(r=>!r.card);
+  else if(cd) list=list.filter(r=>r.card===cd);
+  if(ck==="un") list=list.filter(r=>!r.checked);
+  if(ck==="ok") list=list.filter(r=>r.checked);
+  return list;
+}
 function acctRender(){
-  const mk=s("acct-month").value;
-  const list=mk?acctRows.filter(r=>r.mk===mk):acctRows.slice();
+  const list=acctFiltered();
   // KPI
   const total=list.reduce((a,r)=>a+(r.amount||0),0);
   const cnt=list.length;
   const users=[...new Set(list.map(r=>r.user).filter(Boolean))].length;
+  const unchecked=list.filter(r=>!r.checked).length;
   s("kpis").innerHTML=[
     ["支払合計", yen(total)],
     ["件数", cnt+"件"],
-    ["利用者数", users+"人"]
+    ["利用者数", users+"人"],
+    ["未確認", unchecked+"件"]
   ].map(([l,v])=>`<div class="kpi"><div class="lbl">${l}</div><div class="val">${v}</div></div>`).join("");
-  acctCat(list); acctList(list);
+  acctCard(list); acctCat(list); acctList(list);
+}
+function acctCard(list){
+  const map={}; list.forEach(r=>{ const c=r.card||"（未選択）"; map[c]=(map[c]||0)+r.amount; });
+  const es=Object.entries(map).sort((a,b)=>b[1]-a[1]);
+  if(!es.length){ s("cardbreak").innerHTML='<div class="empty">明細がありません</div>'; return; }
+  const mx=Math.max(...es.map(e=>e[1]),1);
+  s("cardbreak").innerHTML=es.map(([c,v])=>`<div class="catrow"><span class="nm">${esc(c)}</span><span class="track"><span class="bar" style="width:${Math.round(v/mx*100)}%"></span></span><span class="amt">${yen(v)}</span></div>`).join("");
 }
 function acctCat(list){
   const map={}; list.forEach(r=>{ const c=r.category||"未分類"; map[c]=(map[c]||0)+r.amount; });
@@ -311,18 +369,36 @@ function acctCat(list){
 function acctList(list){
   if(!list.length){ s("listWrap").innerHTML='<div class="empty">明細がありません</div>'; return; }
   const sorted=list.slice().sort((a,b)=>String(b.date).localeCompare(String(a.date)));
-  let h='<table><thead><tr><th>日付</th><th class="num">金額</th><th>費目</th><th>利用先</th><th>利用者</th><th>メモ</th><th>領収書</th></tr></thead><tbody>';
+  let h='<table><thead><tr><th>日付</th><th class="num">金額</th><th>カード</th><th>費目</th><th>利用先</th><th>利用者</th><th>メモ</th><th>領収書</th><th>確認</th></tr></thead><tbody>';
   sorted.forEach(r=>{
-    h+=`<tr><td>${esc((r.date||"").toString().slice(0,10))}</td><td class="num">${yen(r.amount)}</td><td><span class="tag">${esc(r.category)||'—'}</span></td><td>${esc(r.store)||'—'}</td><td>${esc(r.user)||'—'}</td><td>${esc(r.memo)||''}</td><td>${r.url?`<a class="rlink" href="${r.url}" target="_blank" rel="noopener">📷</a>`:'—'}</td></tr>`;
+    const chk = r.checked
+      ? `<span class="bdg ok">✓ 確認済</span><div class="chkinfo">${esc(r.checkedBy)}${r.checkedAt?" "+esc(r.checkedAt):""}</div><button class="chkbtn undo" onclick="toggleCheck('${esc(r.id)}',false,this)">取り消す</button>`
+      : `<span class="bdg un">未確認</span> <button class="chkbtn" onclick="toggleCheck('${esc(r.id)}',true,this)">確認する</button>`;
+    h+=`<tr><td>${esc((r.date||"").toString().slice(0,10))}</td><td class="num">${yen(r.amount)}</td><td><span class="tag">${esc(r.card)||'—'}</span></td><td><span class="tag">${esc(r.category)||'—'}</span></td><td>${esc(r.store)||'—'}</td><td>${esc(r.user)||'—'}</td><td>${esc(r.memo)||''}</td><td>${r.url?`<a class="rlink" href="${r.url}" target="_blank" rel="noopener">📷</a>`:'—'}</td><td>${r.id?chk:'<span class="mini">ID未付与（↻更新）</span>'}</td></tr>`;
   });
   s("listWrap").innerHTML=h+"</tbody></table>";
 }
+async function toggleCheck(id, checked, btn){
+  if(!id) return;
+  const by = window._loginName || "経理";
+  if(btn) btn.disabled=true;
+  try{
+    const r = await gasPost({ action:"setChecked", id, checked, by });
+    if(!r.ok) throw new Error(r.error||"更新失敗");
+    const row = acctRows.find(x=>x.id===id);
+    if(row){ row.checked=r.checked; row.checkedBy=r.checkedBy||""; row.checkedAt=r.checkedAt||""; }
+    acctRender();
+  }catch(e){
+    if(btn) btn.disabled=false;
+    alert("確認状態を更新できませんでした：\n"+e.message);
+  }
+}
 function exportCSV(){
   const mk=s("acct-month").value;
-  const list=(mk?acctRows.filter(r=>r.mk===mk):acctRows.slice()).sort((a,b)=>String(b.date).localeCompare(String(a.date)));
-  const head=["日付","金額","費目","利用先","利用者","メモ","領収書リンク"];
+  const list=acctFiltered().sort((a,b)=>String(b.date).localeCompare(String(a.date)));
+  const head=["日付","金額","カード","費目","利用先","利用者","メモ","領収書リンク","確認状態","確認者","確認日時"];
   const q=v=>'"'+String(v==null?"":v).replace(/"/g,'""')+'"';
-  const csv="\uFEFF"+head.join(",")+"\n"+list.map(r=>[(r.date||"").toString().slice(0,10),r.amount,r.category,r.store,r.user,r.memo,r.url].map(q).join(",")).join("\n");
+  const csv="\uFEFF"+head.join(",")+"\n"+list.map(r=>[(r.date||"").toString().slice(0,10),r.amount,r.card,r.category,r.store,r.user,r.memo,r.url,(r.checked?"確認済":"未確認"),r.checkedBy,r.checkedAt].map(q).join(",")).join("\n");
   const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"})); a.download="法人カード明細"+(mk?"_"+mk:"")+".csv"; a.click();
 }
 
@@ -336,6 +412,8 @@ function exportCSV(){
     if(!loginName){ try{ var pa2=localStorage.getItem('portalAuth'); if(pa2){ var o=JSON.parse(pa2); if(o&&o.name) loginName=o.name; } }catch(_){} } }
   if(loginName){ s("f-user").value=loginName; s("f-user").readOnly=true; s("f-user").style.background="#f3ece1"; s("userLbl").textContent="記録者（ログイン中）"; window._loginName=loginName; }
   else { try{ const lu=localStorage.getItem(LASTUSER); if(lu) s("f-user").value=lu; }catch(_){} }
+  // 前回選んだカードを復元（同じカードを続けて使うことが多いため）
+  try{ const lc=localStorage.getItem(LASTCARD); if(lc==="三井住友"||lc==="武蔵野") pickCard(lc); }catch(_){}
   if(!GAS_URL) s("cfgwarn").classList.remove("hide");
 })();
 </script>
