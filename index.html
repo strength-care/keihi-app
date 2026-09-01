@@ -63,6 +63,8 @@
   .acct-toolbar select{font-size:13px;border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:#fff;width:auto;}
   .acct-status{font-size:12px;color:var(--muted);} .acct-status.err{color:#b3261e;}
   .scroll{overflow-x:auto;}
+  .scrollhint{font-size:11.5px;color:var(--muted);margin:0 0 6px;display:none;}
+  td.memo{max-width:240px;overflow:hidden;text-overflow:ellipsis;}
   table{width:100%;border-collapse:collapse;font-size:12.5px;}
   th,td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap;}
   th{color:var(--muted);font-weight:700;background:#faf7f2;position:sticky;top:0;}
@@ -231,7 +233,7 @@
       <div class="kpis" id="kpis"></div>
       <div class="panel"><h3>カード別の集計（表示期間）</h3><div id="cardbreak"></div></div>
       <div class="panel"><h3>費目別の集計（表示期間）</h3><div id="catbreak"></div></div>
-      <div class="panel"><h3>明細一覧</h3><div class="hidnote" id="hidNote" style="display:none"></div><div class="scroll" id="listWrap"></div></div>
+      <div class="panel"><h3>明細一覧</h3><div class="hidnote" id="hidNote" style="display:none"></div><p class="scrollhint" id="scrollHint">← → 表は横にスクロールできます</p><div class="scroll" id="listWrap"></div></div>
     </div>
   </div>
 </main>
@@ -472,7 +474,7 @@ function acctCat(list){
 function acctList(list){
   if(!list.length){ s("listWrap").innerHTML='<div class="empty">明細がありません</div>'; return; }
   const sorted=list.slice().sort((a,b)=>String(b.date).localeCompare(String(a.date)));
-  let h='<table><thead><tr><th>日付</th><th class="num">金額</th><th>カード</th><th>費目</th><th>利用先</th><th>利用者</th><th>メモ</th><th>領収書</th><th>確認</th><th>操作</th></tr></thead><tbody>';
+  let h='<table><thead><tr><th>日付</th><th class="num">金額</th><th>操作</th><th>確認</th><th>カード</th><th>費目</th><th>利用先</th><th>利用者</th><th>メモ</th><th>領収書</th></tr></thead><tbody>';
   sorted.forEach(r=>{
     const den=!!r.denied;
     const chk = r.checked
@@ -492,9 +494,12 @@ function acctList(list){
       : "";
     const etag = (r.edits&&r.edits.length) ? `<span class="edtag">修正${r.edits.length}</span>` : "";
     const cls = [den?"denied":"", (r.edits&&r.edits.length)?"edited":""].filter(Boolean).join(" ");
-    h+=`<tr${cls?` class="${cls}"`:''}><td>${esc((r.date||"").toString().slice(0,10))}</td><td class="num">${yen(r.amount)}</td><td><span class="tag">${esc(r.card)||'—'}</span></td><td><span class="tag">${esc(r.category)||'—'}</span></td><td>${esc(r.store)||'—'}${etag}</td><td>${esc(r.user)||'—'}</td><td>${esc(r.memo)||''}</td><td>${r.url?`<a class="rlink" href="${r.url}" target="_blank" rel="noopener">📷</a>`:'—'}</td><td>${r.id?(deny+chk):'<span class="mini">ID未付与（↻更新）</span>'}</td><td>${ops}</td></tr>`;
+    h+=`<tr${cls?` class="${cls}"`:''}><td>${esc((r.date||"").toString().slice(0,10))}</td><td class="num">${yen(r.amount)}</td><td>${ops}</td><td>${r.id?(deny+chk):'<span class="mini">ID未付与（↻更新）</span>'}</td><td><span class="tag">${esc(r.card)||'—'}</span></td><td><span class="tag">${esc(r.category)||'—'}</span></td><td>${esc(r.store)||'—'}${etag}</td><td>${esc(r.user)||'—'}</td><td class="memo" title="${esc(r.memo)}">${esc(r.memo)||''}</td><td>${r.url?`<a class="rlink" href="${r.url}" target="_blank" rel="noopener">📷</a>`:'—'}</td></tr>`;
   });
   s("listWrap").innerHTML=h+"</tbody></table>";
+  /* 表が画面より広いときだけ、横にスクロールできることを知らせる */
+  const w=s("listWrap"), hint=s("scrollHint");
+  if(hint && w){ hint.style.display = (w.scrollWidth > w.clientWidth + 4) ? "" : "none"; }
 }
 async function toggleCheck(id, checked, btn){
   if(!id) return;
