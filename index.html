@@ -91,6 +91,20 @@
   /* iOSのdate入力を他の入力と揃える（中央寄せ・拡大を防ぐ） */
   input[type="date"]{ -webkit-appearance:none; appearance:none; text-align:left; min-height:44px; line-height:1.2; }
   input[type="date"]::-webkit-date-and-time-value{ text-align:left; }
+tr.denied td{opacity:.5;}
+tr.denied .bdg.deny{opacity:1;background:#fbeeea;color:#b3492f;}
+.bdg.deny{background:#fbeeea;color:#b3492f;}
+.opbtn{border:1px solid #e5decf;background:#fff;border-radius:7px;padding:3px 8px;font-size:11.5px;cursor:pointer;margin:1px;}
+.opbtn.danger{color:#b3492f;border-color:#ecc8bd;}
+.eovl{position:fixed;inset:0;background:rgba(58,46,38,.45);display:none;align-items:center;justify-content:center;z-index:60;}
+.eovl.on{display:flex;}
+.esheet{background:#fff;border-radius:14px;padding:16px;width:min(420px,calc(100% - 36px));max-height:88vh;overflow:auto;}
+.esheet h3{margin:0 0 10px;font-size:15px;}
+.esheet label{display:block;font-size:11.5px;color:#7a6b5d;font-weight:700;margin:8px 0 2px;}
+.esheet input,.esheet select,.esheet textarea{width:100%;padding:8px;border:1px solid #e5decf;border-radius:8px;font:inherit;box-sizing:border-box;}
+.esheet .row{display:flex;gap:8px;margin-top:12px;}
+.esheet .row button{flex:1;padding:9px;border-radius:9px;border:1px solid #e5decf;background:#fff;font:inherit;font-weight:700;cursor:pointer;}
+.esheet .row .prim{background:#7A4E27;border-color:#7A4E27;color:#fff;}
 </style>
 </head>
 <body>
@@ -314,12 +328,72 @@ function unlockAcct(){
   acctUnlocked=true; s("acct-lock").classList.add("hide"); s("acct-body").classList.remove("hide");
   if(!acctLoaded) acctReload();
 }
+/* ===== 2026-08-31 修正・否認・消去（打合せ対応。小口と同じ流儀） =====
+   否認＝理由必須。行がグレーになり、カード別・費目別の集計から外れる（戻せる）。
+   消去＝一覧から消す。シートの行は消さず削除フラグ（間違えても戻せる）。
+   ※GAS側に edit / deny / erase の3アクションが必要（全文差し替えで対応）。 */
+function editRow(id){
+  const r=acctRows.find(x=>x.id===id); if(!r) return;
+  s("e-id").value=id;
+  s("e-date").value=String(r.date||"").slice(0,10);
+  s("e-amount").value=r.amount||"";
+  s("e-card").value=r.card||"";
+  s("e-category").value=r.category||"";
+  s("e-store").value=r.store||"";
+  s("e-user").value=r.user||"";
+  s("e-memo").value=r.memo||"";
+  s("editOvl").classList.add("on");
+}
+function editClose(){ s("editOvl").classList.remove("on"); }
+async function editSave(){
+  const id=s("e-id").value;
+  const row={ date:s("e-date").value, amount:Number(s("e-amount").value)||0,
+    card:s("e-card").value.trim(), category:s("e-category").value.trim(),
+    store:s("e-store").value.trim(), user:s("e-user").value.trim(), memo:s("e-memo").value.trim() };
+  if(!row.date){ alert("日付を入れてください"); return; }
+  if(!row.amount){ alert("金額を入れてください"); return; }
+  const b=s("e-save"); b.disabled=true; b.textContent="保存中…";
+  try{
+    const r=await gasPost({ action:"edit", id, row, by:(window._loginName||"経理") });
+    if(!r.ok) throw new Error(r.error||"保存失敗");
+    const t=acctRows.find(x=>x.id===id);
+    if(t) Object.assign(t, row, { mk:String(row.date).slice(0,7) });
+    editClose(); acctRender();
+  }catch(e){ alert("修正できませんでした：\n"+e.message); }
+  finally{ b.disabled=false; b.textContent="保存する"; }
+}
+async function denyRow(id, on){
+  let reason="";
+  if(on){
+    reason=prompt("否認の理由を入れてください（必須）","");
+    if(reason===null) return;
+    reason=reason.trim();
+    if(!reason){ alert("理由が空です。否認には理由が必要です"); return; }
+  }else if(!confirm("この明細の否認を取り消しますか？")) return;
+  try{
+    const r=await gasPost({ action:"deny", id, on, reason, by:(window._loginName||"経理") });
+    if(!r.ok) throw new Error(r.error||"更新失敗");
+    const t=acctRows.find(x=>x.id===id);
+    if(t){ t.denied=on; t.denyBy=on?(window._loginName||"経理"):""; t.denyReason=on?reason:""; }
+    acctRender();
+  }catch(e){ alert("否認の更新ができませんでした：\n"+e.message); }
+}
+async function eraseRow(id){
+  const r0=acctRows.find(x=>x.id===id);
+  if(!confirm(`この明細を一覧から消去しますか？\n${String(r0&&r0.date||"").slice(0,10)}　${yen(r0&&r0.amount)}　${(r0&&r0.store)||""}\n（撮り直しの二重分など。シートには残るので戻せます）`)) return;
+  try{
+    const r=await gasPost({ action:"erase", id, by:(window._loginName||"経理") });
+    if(!r.ok) throw new Error(r.error||"更新失敗");
+    acctRows=acctRows.filter(x=>x.id!==id);
+    acctRender();
+  }catch(e){ alert("消去できませんでした：\n"+e.message); }
+}
 async function acctReload(){
   const st=s("acct-status"); st.className="acct-status"; st.textContent="読み込み中…";
   try{
     const r=await gasPost({action:"list"});
     if(!r.ok) throw new Error(r.error||"取得失敗");
-    acctRows=(r.rows||[]).map(x=>({...x, mk:(String(x.date||x.received||"")).slice(0,7)}));
+    acctRows=(r.rows||[]).filter(x=>!x.erased).map(x=>({...x, mk:(String(x.date||x.received||"")).slice(0,7)}));
     acctLoaded=true;
     // 月プルダウン
     const months=[...new Set(acctRows.map(r=>r.mk).filter(Boolean))].sort().reverse();
@@ -352,14 +426,14 @@ function acctRender(){
   ].map(([l,v])=>`<div class="kpi"><div class="lbl">${l}</div><div class="val">${v}</div></div>`).join("");
   acctCard(list); acctCat(list); acctList(list);
 }
-function acctCard(list){
+function acctCard(list){ list=list.filter(r=>!r.denied);
   const map={}; list.forEach(r=>{ const c=r.card||"（未選択）"; map[c]=(map[c]||0)+r.amount; });
   const es=Object.entries(map).sort((a,b)=>b[1]-a[1]);
   if(!es.length){ s("cardbreak").innerHTML='<div class="empty">明細がありません</div>'; return; }
   const mx=Math.max(...es.map(e=>e[1]),1);
   s("cardbreak").innerHTML=es.map(([c,v])=>`<div class="catrow"><span class="nm">${esc(c)}</span><span class="track"><span class="bar" style="width:${Math.round(v/mx*100)}%"></span></span><span class="amt">${yen(v)}</span></div>`).join("");
 }
-function acctCat(list){
+function acctCat(list){ list=list.filter(r=>!r.denied);
   const map={}; list.forEach(r=>{ const c=r.category||"未分類"; map[c]=(map[c]||0)+r.amount; });
   const es=Object.entries(map).sort((a,b)=>b[1]-a[1]);
   if(!es.length){ s("catbreak").innerHTML='<div class="empty">明細がありません</div>'; return; }
@@ -369,12 +443,18 @@ function acctCat(list){
 function acctList(list){
   if(!list.length){ s("listWrap").innerHTML='<div class="empty">明細がありません</div>'; return; }
   const sorted=list.slice().sort((a,b)=>String(b.date).localeCompare(String(a.date)));
-  let h='<table><thead><tr><th>日付</th><th class="num">金額</th><th>カード</th><th>費目</th><th>利用先</th><th>利用者</th><th>メモ</th><th>領収書</th><th>確認</th></tr></thead><tbody>';
+  let h='<table><thead><tr><th>日付</th><th class="num">金額</th><th>カード</th><th>費目</th><th>利用先</th><th>利用者</th><th>メモ</th><th>領収書</th><th>確認</th><th>操作</th></tr></thead><tbody>';
   sorted.forEach(r=>{
     const chk = r.checked
       ? `<span class="bdg ok">✓ 確認済</span><div class="chkinfo">${esc(r.checkedBy)}${r.checkedAt?" "+esc(r.checkedAt):""}</div><button class="chkbtn undo" onclick="toggleCheck('${esc(r.id)}',false,this)">取り消す</button>`
       : `<span class="bdg un">未確認</span> <button class="chkbtn" onclick="toggleCheck('${esc(r.id)}',true,this)">確認する</button>`;
-    h+=`<tr><td>${esc((r.date||"").toString().slice(0,10))}</td><td class="num">${yen(r.amount)}</td><td><span class="tag">${esc(r.card)||'—'}</span></td><td><span class="tag">${esc(r.category)||'—'}</span></td><td>${esc(r.store)||'—'}</td><td>${esc(r.user)||'—'}</td><td>${esc(r.memo)||''}</td><td>${r.url?`<a class="rlink" href="${r.url}" target="_blank" rel="noopener">📷</a>`:'—'}</td><td>${r.id?chk:'<span class="mini">ID未付与（↻更新）</span>'}</td></tr>`;
+    const deny = r.denied ? `<span class="bdg deny">🚫 否認</span><div class="chkinfo">${esc(r.denyBy||"")} ${esc(r.denyReason||"")}</div>` : "";
+    const ops = r.id ? `<button class="opbtn" onclick="editRow('${esc(r.id)}')">✏ 修正</button>`+
+      (r.denied
+        ? `<button class="opbtn" onclick="denyRow('${esc(r.id)}',false)">否認を戻す</button>`
+        : `<button class="opbtn danger" onclick="denyRow('${esc(r.id)}',true)">🚫 否認</button>`)+
+      `<button class="opbtn danger" onclick="eraseRow('${esc(r.id)}')">🗑 消去</button>` : "";
+    h+=`<tr${r.denied?' class="denied"':''}><td>${esc((r.date||"").toString().slice(0,10))}</td><td class="num">${yen(r.amount)}</td><td><span class="tag">${esc(r.card)||'—'}</span></td><td><span class="tag">${esc(r.category)||'—'}</span></td><td>${esc(r.store)||'—'}</td><td>${esc(r.user)||'—'}</td><td>${esc(r.memo)||''}</td><td>${r.url?`<a class="rlink" href="${r.url}" target="_blank" rel="noopener">📷</a>`:'—'}</td><td>${r.id?(deny+chk):'<span class="mini">ID未付与（↻更新）</span>'}</td><td>${ops}</td></tr>`;
   });
   s("listWrap").innerHTML=h+"</tbody></table>";
 }
@@ -417,5 +497,22 @@ function exportCSV(){
   if(!GAS_URL) s("cfgwarn").classList.remove("hide");
 })();
 </script>
+<div class="eovl" id="editOvl">
+  <div class="esheet">
+    <h3>✏ 明細を修正する</h3>
+    <input type="hidden" id="e-id">
+    <label>日付</label><input type="date" id="e-date">
+    <label>金額</label><input type="number" id="e-amount" inputmode="numeric">
+    <label>カード</label><input type="text" id="e-card" list="cardList">
+    <label>費目</label><input type="text" id="e-category">
+    <label>利用先</label><input type="text" id="e-store">
+    <label>利用者</label><input type="text" id="e-user">
+    <label>メモ</label><input type="text" id="e-memo">
+    <div class="row">
+      <button onclick="editClose()">やめる</button>
+      <button class="prim" id="e-save" onclick="editSave()">保存する</button>
+    </div>
+  </div>
+</div>
 </body>
 </html>
