@@ -151,15 +151,15 @@
           <div style="font-size:38px">🧾</div>
           <p class="mini" style="margin:8px 0 0;">領収書を撮影してください</p>
           <div class="filebtns">
-            <label class="btn sm">📷 撮影する<input type="file" accept="image/*" style="display:none" onchange="onPick(event)"></label>
-            <label class="btn o sm">🖼 画像を選ぶ<input type="file" accept="image/*" style="display:none" onchange="onPick(event)"></label>
+            <label class="btn sm">📷 撮影する<input type="file" accept="image/*,application/pdf,.pdf" style="display:none" onchange="onPick(event)"></label>
+            <label class="btn o sm">🖼 画像・PDFを選ぶ<input type="file" accept="image/*,application/pdf,.pdf" style="display:none" onchange="onPick(event)"></label>
           </div>
         </div>
         <img id="preview" class="preview" style="display:none" alt="領収書">
       </div>
       <div id="aiArea" class="hide"><div class="status" id="aiStatus"></div></div>
       <div class="filebtns" id="retake" style="display:none;margin-top:10px;">
-        <label class="btn o sm">↻ 撮り直す<input type="file" accept="image/*" style="display:none" onchange="onPick(event)"></label>
+        <label class="btn o sm">↻ 撮り直す<input type="file" accept="image/*,application/pdf,.pdf" style="display:none" onchange="onPick(event)"></label>
         <button class="btn o sm" onclick="runOCR()">✨ もう一度読み取る</button>
       </div>
     </div>
@@ -329,8 +329,49 @@ function showPage(p){
 }
 
 /* ===== 記録（撮って送る） ===== */
+/* ★2026-09-16 PDFの領収書も読めるようにする
+   AIには画像しか送れないので、PDFは1ページ目を絵にしてから送る。
+   変換はこの画面の中で行う（GASは触っていない）。 */
+const PDFJS_SRC = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
+const PDFJS_WORKER = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+let pdfjsReady = null;
+function loadPdfJs(){
+  if(window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
+  if(pdfjsReady) return pdfjsReady;
+  pdfjsReady = new Promise((res, rej)=>{
+    const sc=document.createElement("script");
+    sc.src=PDFJS_SRC;
+    sc.onload=()=>{ try{ window.pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_WORKER; }catch(e){}
+                    res(window.pdfjsLib); };
+    sc.onerror=()=> rej(new Error("PDFを読む部品を取り込めませんでした"));
+    document.head.appendChild(sc);
+  });
+  return pdfjsReady;
+}
+/* PDF（データURL）→ 1ページ目のJPEG */
+async function pdfToImage(dataUrl){
+  const lib = await loadPdfJs();
+  const bin = atob(String(dataUrl).split(",")[1]);
+  const buf = new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++) buf[i]=bin.charCodeAt(i);
+  const doc = await lib.getDocument({ data: buf }).promise;
+  const page = await doc.getPage(1);
+  /* 読み取りやすいよう、長辺1400pxくらいになる倍率で描く */
+  const v1 = page.getViewport({ scale: 1 });
+  const scale = Math.min(3, Math.max(1, 1400 / Math.max(v1.width, v1.height)));
+  const vp = page.getViewport({ scale });
+  const cv = document.createElement("canvas");
+  cv.width = Math.round(vp.width); cv.height = Math.round(vp.height);
+  const ctx = cv.getContext("2d");
+  ctx.fillStyle = "#fff"; ctx.fillRect(0,0,cv.width,cv.height);   /* 透過を白で埋める */
+  await page.render({ canvasContext: ctx, viewport: vp }).promise;
+  return { img: cv.toDataURL("image/jpeg", 0.8), pages: doc.numPages };
+}
+
 function onPick(ev){
   const f=ev.target.files&&ev.target.files[0]; ev.target.value=""; if(!f) return;
+  const isPdf = (f.type === "application/pdf") || /\.pdf$/i.test(f.name||"");
+  if(isPdf) return onPickPdf(f);
   const rd=new FileReader();
   rd.onload=()=>{ const img=new Image();
     img.onload=()=>{ const max=1400; let w=img.width,h=img.height;
@@ -344,6 +385,29 @@ function onPick(ev){
   };
   rd.readAsDataURL(f);
 }
+async function onPickPdf(f){
+  const st=s("aiStatus"); s("aiArea").classList.remove("hide");
+  st.className="status"; st.innerHTML='<span class="spinner"></span>PDFを開いています…';
+  try{
+    const dataUrl = await new Promise((res,rej)=>{
+      const rd=new FileReader();
+      rd.onload=()=>res(rd.result);
+      rd.onerror=()=>rej(new Error("ファイルを読めませんでした"));
+      rd.readAsDataURL(f);
+    });
+    const { img, pages } = await pdfToImage(dataUrl);
+    currentImage = img;
+    showPreview();
+    if(pages > 1){
+      st.className="status"; st.textContent = "PDFの1ページ目を読み取ります（全"+pages+"ページ）";
+    }
+    runOCR();
+  }catch(e){
+    st.className="status err";
+    st.textContent = "PDFを開けませんでした（" + (e.message||e) + "）。写真に撮るか、画像に書き出してからお試しください。";
+  }
+}
+
 function showPreview(){ const p=s("preview");
   if(currentImage){ p.src=currentImage; p.style.display="block"; s("capEmpty").style.display="none"; s("capwrap").classList.add("has"); s("retake").style.display="flex"; }
   else { p.style.display="none"; s("capEmpty").style.display="block"; s("capwrap").classList.remove("has"); s("retake").style.display="none"; s("aiArea").classList.add("hide"); }
