@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>法人カード（経費ログ）【10-04】</title>
+<title>法人カード（経費ログ）【10-07】</title>
 <style>
   :root{ --navy:#7A4E27; --navy2:#9A6634; --pink:#E58A99; --gold:#F0C038; --ink:#3a2e26;
     --line:#ece5dc; --muted:#7a6b5d; --bg:#faf6f0; --card:#fff; --yellow:#fdf3da; --yellow-br:#ecd79a;
@@ -174,10 +174,11 @@
       <label class="fld"><span>利用先（店名）</span><input id="f-store" placeholder="例 ◯◯ドラッグ"></label>
       <label class="fld"><span>費目カテゴリ <span id="catAI" class="pill" style="display:none">AI判定</span></span><select id="f-category" onchange="document.getElementById('catAI').style.display='none'"></select></label>
       <label class="fld"><span>拠点（どこの経費か）</span>
+        <!-- ★10-07 GH のボタンは建物マスタ（buildingList の sites）から作り直す。読めないときはこの固定値のまま -->
         <div class="cardpick" id="basePick">
-          <button type="button" id="base-vn" class="on" onclick="pickBase('訪問看護')">🏥 訪問看護</button>
-          <button type="button" id="base-ghs" onclick="pickBase('GH志木')">🏠 GH志木</button>
-          <button type="button" id="base-ghi" onclick="pickBase('GH石神')">🏠 GH石神</button>
+          <button type="button" id="base-vn" class="on" data-base="訪問看護" onclick="pickBase('訪問看護')">🏥 訪問看護</button>
+          <button type="button" id="base-ghs" data-base="GH志木" onclick="pickBase('GH志木')">🏠 GH志木</button>
+          <button type="button" id="base-ghi" data-base="GH石神" onclick="pickBase('GH石神')">🏠 GH石神</button>
         </div>
       </label>
       <label class="fld"><span>使ったカード</span>
@@ -327,15 +328,51 @@ let selectedCard = "";
    印なし＝訪問看護。経営ダッシュボードがこの印でグループホームの雑費を拾う */
 let selectedBase = "訪問看護";
 function pickBase(b){ selectedBase=b;
-  [["base-vn","訪問看護"],["base-ghs","GH志木"],["base-ghi","GH石神"]].forEach(function(x){ var e=document.getElementById(x[0]); if(e) e.classList.toggle("on", x[1]===b); }); }
-var TAG_RE=/^\s*[\[［]GH(志木|石神)?[\]］]\s*/;
+  document.querySelectorAll("#basePick button").forEach(function(e){ e.classList.toggle("on", e.dataset.base===b); }); }
+/* ===== ★10-07 拠点（GH志木／GH石神）の並びを建物マスタから =====
+   保管用GAS の buildingList が返す sites（例 ['志木','石神']）から GH のボタン・選択肢を作る。
+   将来 拠点が増えてもここが自動で追従する。読めないときは従来の固定値（志木・石神）のまま。
+   見出し（[GH志木][GH石神]）やメモ先頭の印の決まりは変えない */
+const MASTER_GAS_URL="https://script.google.com/macros/s/AKfycbzp77rv3-m1PZZ4C0JtRlfEn734bL2atgPXz8LZv9Nsn6oPQle9fwUpqjKdcIbvprAtLw/exec";   /* 保管用GAS（建物マスタ・読むだけ） */
+const SITES_DEFAULT=["志木","石神"];
+let SITES=SITES_DEFAULT.slice();
+window.SITES_SRC="固定値";
+function ghNames(){ return SITES.map(function(x){ return "GH"+x; }); }
+function rebuildSiteUI(){
+  var pick=s("basePick"); if(pick){ var c=selectedBase;
+    pick.innerHTML='<button type="button" data-base="訪問看護" onclick="pickBase(\'訪問看護\')">🏥 訪問看護</button>'
+      +SITES.map(function(st){ return '<button type="button" data-base="GH'+esc(st)+'" onclick="pickBase(\'GH'+esc(st)+'\')">🏠 GH'+esc(st)+'</button>'; }).join("");
+    pickBase(["訪問看護"].concat(ghNames()).indexOf(c)>=0?c:"訪問看護"); }
+  var ab=s("acct-base"); if(ab){ var c2=ab.value;
+    ab.innerHTML='<option value="">拠点：すべて</option><option value="訪問看護">訪問看護</option><option value="GH">グループホーム（全部）</option>'
+      +ghNames().map(function(nm){ return '<option value="'+esc(nm)+'">'+esc(nm)+'</option>'; }).join("");
+    if([].slice.call(ab.options).some(function(o){ return o.value===c2; })) ab.value=c2; }
+  var eb=s("e-base"); if(eb){ var c3=eb.value;
+    eb.innerHTML='<option value="訪問看護">訪問看護</option>'+ghNames().map(function(nm){ return '<option value="'+esc(nm)+'">'+esc(nm)+'</option>'; }).join("")+'<option value="GH（未選択）">GH（未選択）</option>';
+    if([].slice.call(eb.options).some(function(o){ return o.value===c3; })) eb.value=c3; }
+}
+async function loadSites(){
+  try{
+    var ctl=new AbortController(); var t=setTimeout(function(){ ctl.abort(); },8000);
+    var r=await fetch(MASTER_GAS_URL,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({action:"buildingList"}),signal:ctl.signal});
+    clearTimeout(t);
+    var j=await r.json();
+    if(j && j.ok && Array.isArray(j.sites)){
+      var ss=j.sites.map(function(x){ return String(x||"").trim(); }).filter(function(x){ return x && x!=="その他"; });
+      if(ss.length){ SITES=ss; window.SITES_SRC="建物マスタ"; }
+    }
+  }catch(e){ /* 読めないときは固定値のまま */ }
+  rebuildSiteUI();
+}
+/* ★10-07 印の中の拠点名は固定（志木|石神）ではなく [GH◯◯] なら何でも拾う（建物マスタに合わせる） */
+var TAG_RE=/^\s*[\[［]GH([^\]］]*)[\]］]\s*/;
 function tagParse(memo){ var m=String(memo||''), site=null, gh=false, x;
-  while((x=m.match(TAG_RE))){ gh=true; if(x[1]) site=x[1]; m=m.slice(x[0].length); }
+  while((x=m.match(TAG_RE))){ gh=true; var nm=String(x[1]||'').trim(); if(nm) site=nm; m=m.slice(x[0].length); }
   return { base: site ? 'GH'+site : (gh ? 'GH（未選択）' : '訪問看護'), text:m }; }
 function baseOf(r){ return tagParse(r&&r.memo).base; }
 function memoClean(r){ return tagParse(r&&r.memo).text; }
 function withBaseTag(b, memo){ var t=tagParse(memo).text;
-  if(b==='GH志木'||b==='GH石神') return ('['+b+'] '+t).trim();
+  if(ghNames().indexOf(b)>=0) return ('['+b+'] '+t).trim();
   if(b==='GH（未選択）') return ('[GH] '+t).trim();
   return t; }
 function baseChip(r){ var b=baseOf(r);
@@ -652,6 +689,7 @@ function exportCSV(){
   // 前回選んだカードを復元（同じカードを続けて使うことが多いため）
   try{ const lc=localStorage.getItem(LASTCARD); if(lc==="三井住友"||lc==="武蔵野") pickCard(lc); }catch(_){}
   if(!GAS_URL) s("cfgwarn").classList.remove("hide");
+  loadSites();   // ★10-07 拠点（GH志木／GH石神）の並びを建物マスタから（読めなければ固定値）
 })();
 
 /* ===================================================================
